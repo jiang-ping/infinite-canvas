@@ -39,7 +39,7 @@ function localPluginsManifest(): Plugin {
 }
 
 export default defineConfig({
-    base: process.env.VITE_BASE || "/",
+    base: "/fe/infinite/",
     plugins: [react(), localPluginsManifest()],
     resolve: {
         alias: {

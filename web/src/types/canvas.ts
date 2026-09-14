@@ -35,6 +35,11 @@ export type CanvasNodeImage = {
     naturalHeight: number;
     bytes: number;
     mimeType: string;
+    taskId?: string;
+    att?: string;
+    thumbUrl?: string;
+    webpUrl?: string;
+    downloadUrl?: string;
 };
 
 export type CanvasNodeText = {
@@ -83,6 +88,18 @@ export type CanvasNodeMetadata = {
     durationMs?: number;
     videoTaskId?: string;
     videoTaskProvider?: "openai" | "gemini";
+    taskId?: string;
+    att?: string;
+    thumbUrl?: string;
+    webpUrl?: string;
+    downloadUrl?: string;
+
+
+
+
+
+    xaisFields?: Record<string, string>;
+    visionOnly?: boolean;
     groupId?: string;
     interactive?: boolean; // Plugin node interaction/move state; see CanvasNodeDefinition.interactionToggle.
 };

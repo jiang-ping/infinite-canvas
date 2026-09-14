@@ -1,10 +1,11 @@
-import type { CSSProperties } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import { Image as ImageIcon, LoaderCircle, MessageSquare, Music2, Play, Settings2, Square, Video } from "lucide-react";
-import { Button, Segmented } from "antd";
+import { Button, Popover, Select, Segmented, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { CustomFieldSelect } from "./custom-field-select";
+import { defaultConfig, modelCustomSelectFields, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig, type ModelCustomSelectField } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
@@ -30,6 +31,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const mode = node.metadata?.generationMode || "image";
     const config = buildNodeConfig(globalConfig, node, mode);
+    const customFields = modelCustomSelectFields(config, config.model) || [];
     const chipStyle = { background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text };
     const hasAnyInput = Boolean(inputSummary.textCount || inputSummary.imageCount || inputSummary.videoCount || inputSummary.audioCount);
     const hasComposerContent = Boolean((node.metadata?.composerContent ?? node.metadata?.prompt ?? "").trim());
@@ -99,16 +101,34 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
             </div>
 
             <div className="mb-2 grid min-w-0 cursor-default grid-cols-[minmax(0,1fr)_148px] items-center gap-2" onMouseDown={(event) => event.stopPropagation()}>
-                <ModelPicker className="canvas-compact-control h-10" config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability={mode} onMissingConfig={() => openConfigDialog(true)} fullWidth />
-                {mode === "video" ? (
-                    <CanvasVideoSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
-                ) : mode === "image" ? (
-                    <CanvasImageSettingsPopover config={config} placement="topRight" autoAdjustOverflow={false} buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })} />
-                ) : mode === "audio" ? (
-                    <CanvasAudioSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))} />
-                ) : (
-                    <CanvasTextSettingsPopover config={config} count={node.metadata?.textCount || 1} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(_, value) => onConfigChange(node.id, { reasoningEffort: value })} onCountChange={(textCount) => onConfigChange(node.id, { textCount })} />
-                )}
+                <ModelPicker className="canvas-compact-control h-10" config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability={mode} visionOnly={mode === "text" && Boolean(node.metadata?.visionOnly)} onMissingConfig={() => openConfigDialog(true)} fullWidth />
+                {(() => {
+                    const fields = customFields.filter((f) => f.options.length > 1);
+                    if (fields.length) {
+                        return (
+                            <Popover trigger="click" placement="topRight" content={
+                                <div data-canvas-no-zoom className="flex flex-col gap-2 p-1" style={{ minWidth: 200 }} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                                    {fields.map((f) => (
+                                        <div key={f.fieldName} className="flex items-center justify-between gap-2">
+                                            <span className="whitespace-nowrap text-xs">{f.fieldLabel}</span>
+                                            <CustomFieldSelect config={config} field={f} nodeId={node.id} node={node} onConfigChange={onConfigChange} theme={theme} className="!h-7 !rounded !border !px-1 text-xs" style={{ minWidth: 120, maxWidth: 160 }} />
+                                        </div>
+                                    ))}
+                                </div>
+                            }>
+                                <Button type="text" className="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" icon={<Settings2 className="size-4" />} style={{ color: theme.node.text }} />
+                            </Popover>
+                        );
+                    }
+                    if (mode === "text") return null;
+                    return mode === "video" ? (
+                        <CanvasVideoSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
+                    ) : mode === "image" ? (
+                        <CanvasImageSettingsPopover config={config} placement="topRight" autoAdjustOverflow={false} buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })} />
+                    ) : mode === "audio" ? (
+                        <CanvasAudioSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))} />
+                    ) : null;
+                })()}
             </div>
 
             <Button
@@ -165,6 +185,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed || defaultConfig.audioSpeed,
         audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
         count: String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
+        xaisFields: { ...node.metadata?.xaisFields, __xaisPageId: node.id },
     };
 }
 

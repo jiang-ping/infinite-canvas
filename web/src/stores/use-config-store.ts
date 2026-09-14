@@ -9,10 +9,21 @@ export type ApiCallFormat = "openai" | "gemini";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 
+export type ModelCustomSelectField = {
+    fieldName: string;
+    fieldLabel: string;
+    fieldTip?: string;
+    options: Array<{ label?: string; value: string }>;
+};
+
 export type ChannelModel = {
     name: string;
+    label?: string;
     capability: ModelCapability;
     script?: string;
+    customSelectFields?: ModelCustomSelectField[];
+    /** 支持图片输入的文生文模型(ti2t);反推提示词等场景只列出这些 */
+    vision?: boolean;
 };
 
 export type ModelChannel = {
@@ -52,6 +63,8 @@ export type AiConfig = {
     background: string;
     count: string;
     canvasImageCount: string;
+    /** Xais embed:节点自定义参数原值(fieldName → 用户所选 value),custom_field 的权威来源 */
+    xaisFields?: Record<string, string>;
     proxyEnabled: boolean;
     proxyUrl: string;
 };
@@ -295,7 +308,10 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
         seen.add(name);
         const capability = typeof item === "string" ? guessCapability(name) : item.capability || guessCapability(name);
         const script = typeof item === "string" ? undefined : item.script?.trim() || undefined;
-        result.push({ name, capability, script });
+        const label = typeof item === "string" ? undefined : item.label?.trim() || undefined;
+        const customSelectFields = typeof item === "string" ? undefined : item.customSelectFields;
+        const vision = typeof item === "string" ? undefined : item.vision;
+        result.push({ name, label, capability, script, customSelectFields, vision });
     }
     return result;
 }
@@ -398,7 +414,24 @@ export function modelOptionLabel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
     if (!decoded) return value;
     const channel = config.channels.find((item) => item.id === decoded.channelId);
-    return channel ? `${decoded.model}（${channel.name}）` : decoded.model;
+    if (!channel) return decoded.model;
+    const model = channel.models.find((item) => item.name === decoded.model);
+    const base = model?.label || decoded.model;
+    return `${base}（${channel.name}）`;
+}
+
+export function modelCustomSelectFields(config: AiConfig, value: string): ModelCustomSelectField[] | undefined {
+    return findChannelModel(config, value)?.model.customSelectFields;
+}
+
+/** 是否为支持图片输入的文生文模型(ti2t) */
+export function modelHasVision(config: AiConfig, value: string) {
+    return Boolean(findChannelModel(config, value)?.model.vision);
+}
+
+/** 第一个支持图片输入的文生文模型(反推提示词默认模型) */
+export function firstVisionTextModel(config: AiConfig) {
+    return selectableModelsByCapability(config, "text").find((model) => modelHasVision(config, model)) || "";
 }
 
 export function modelOptionsFromChannels(channels: ModelChannel[]) {

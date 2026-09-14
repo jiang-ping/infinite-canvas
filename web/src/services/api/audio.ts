@@ -5,6 +5,7 @@ import { audioMimeType, normalizeAudioFormatValue, normalizeAudioSpeedValue, nor
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
+import { getXaisOutputForUrl } from "@/services/xais-embed";
 
 type RequestOptions = { signal?: AbortSignal };
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
@@ -35,7 +36,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
                 script,
                 config: requestConfig,
                 prompt,
-                params: { voice: normalizeAudioVoiceValue(config.audioVoice), format, speed: normalizeAudioSpeedValue(config.audioSpeed), instructions: config.audioInstructions.trim() },
+                params: { voice: normalizeAudioVoiceValue(config.audioVoice), format, speed: normalizeAudioSpeedValue(config.audioSpeed), instructions: config.audioInstructions.trim(), ...(config.xaisFields || {}) },
                 signal: options?.signal,
             });
             return await audioPluginBlob(result, format);
@@ -66,23 +67,27 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
     }
 }
 
-async function audioPluginBlob(result: unknown, format: string): Promise<Blob> {
-    if (result instanceof Blob) return result.type.startsWith("audio/") ? result : new Blob([result], { type: audioMimeType(format) });
+async function audioPluginBlob(pluginResult: unknown, format: string): Promise<Blob> {
+    if (pluginResult instanceof Blob) return pluginResult.type.startsWith("audio/") ? pluginResult : new Blob([pluginResult], { type: audioMimeType(format) });
     let source = "";
-    if (typeof result === "string") source = result;
-    else if (result && typeof result === "object") {
-        const record = result as Record<string, unknown>;
+    if (typeof pluginResult === "string") source = pluginResult;
+    else if (pluginResult && typeof pluginResult === "object") {
+        const record = pluginResult as Record<string, unknown>;
         source = typeof record.b64_json === "string" ? record.b64_json : typeof record.data === "string" ? record.data : typeof record.url === "string" ? record.url : "";
     }
     if (!source) throw new Error(apiText("scriptNoAudio"));
     const url = source.startsWith("data:") || /^https?:/i.test(source) ? source : `data:${audioMimeType(format)};base64,${source}`;
     const blob = await (await fetch(withLocalProxy(url))).blob();
-    return blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: audioMimeType(format) });
+    const normalized = blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: audioMimeType(format) });
+    const output = getXaisOutputForUrl(source);
+    return output ? Object.assign(normalized as Blob & { __xaisOutput?: unknown }, { __xaisOutput: output }) : normalized;
 }
 
 export async function storeGeneratedAudio(blob: Blob, format = "mp3"): Promise<UploadedFile> {
     const audio = blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: audioMimeType(format) });
-    return uploadMediaFile(audio, "audio");
+    const uploaded = await uploadMediaFile(audio, "audio");
+    const output = (blob as Blob & { __xaisOutput?: unknown }).__xaisOutput;
+    return output ? Object.assign(uploaded, { __xaisOutput: output }) : uploaded;
 }
 
 function assertAudioConfig(config: AiConfig, model: string) {

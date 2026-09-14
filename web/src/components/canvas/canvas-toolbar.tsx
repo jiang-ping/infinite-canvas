@@ -302,6 +302,7 @@ function ToolbarButton({
     return (
         <Button
             type="text"
+            id={id}
             aria-label={label}
             className="!h-8 !w-8 !min-w-8 !p-0"
             disabled={disabled}

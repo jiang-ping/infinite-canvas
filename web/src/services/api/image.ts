@@ -735,10 +735,10 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 config: requestConfig,
                 prompt: withSystemPrompt(requestConfig, prompt),
                 images: [],
-                params: { size: requestSize, quality, count: n, ...(background ? { background } : {}) },
+                params: { size: requestSize, quality, count: n, ...(background ? { background } : {}), ...(config.xaisFields || {}) },
                 signal: options?.signal,
             });
-            return normalizePluginImages(result).map((dataUrl) => ({ id: nanoid(), dataUrl }));
+            return normalizePluginImages(result).map((item) => ({ id: nanoid(), dataUrl: item.url, taskId: item.taskId, att: item.att, thumbUrl: item.thumb, webpUrl: item.webp, downloadUrl: item.download }));
         } catch (error) {
             throw new Error(readAxiosError(error, apiText("requestFailed")));
         }
@@ -796,10 +796,10 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
                 config: requestConfig,
                 prompt: withSystemPrompt(requestConfig, requestPrompt),
                 images: refs,
-                params: { size: requestSize, quality, count: n, ...(background ? { background } : {}) },
+                params: { size: requestSize, quality, count: n, ...(background ? { background } : {}), ...(config.xaisFields || {}) },
                 signal: options?.signal,
             });
-            return normalizePluginImages(result).map((dataUrl) => ({ id: nanoid(), dataUrl }));
+            return normalizePluginImages(result).map((item) => ({ id: nanoid(), dataUrl: item.url, taskId: item.taskId, att: item.att, thumbUrl: item.thumb, webpUrl: item.webp, downloadUrl: item.download }));
         } catch (error) {
             throw new Error(readAxiosError(error, apiText("requestFailed")));
         }
@@ -856,6 +856,7 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
                 script,
                 config: requestConfig,
                 messages: withSystemMessage(requestConfig, messages),
+                params: config.xaisFields || {},
                 signal: options?.signal,
                 onDelta,
             });

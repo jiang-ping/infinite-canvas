@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
+import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Play, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
@@ -439,7 +439,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 {!referenceSelectionState ? <ResizeHandle corner="bottom-right" onMouseDown={handleResizeMouseDown} /> : null}
             </div>
 
-            {!referenceSelectionState && !isGroup ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
+            {!referenceSelectionState && !isGroup && data.type !== CanvasNodeType.Audio ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
             {!referenceSelectionState && (definition?.hasSourceHandle ?? true) && data.type !== CanvasNodeType.Config ? <ConnectionHandleDot side="right" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "source")} /> : null}
 
             {showPanel && !isGroup && renderPanel ? <div className="absolute left-1/2 top-full z-[70] w-[600px] -translate-x-1/2 pt-4">{renderPanel(data)}</div> : null}
@@ -696,19 +696,24 @@ function EmptyImageContent({ theme }: NodeContentRendererProps) {
 
 function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
     const { t } = useTranslation();
-    if (!node.metadata?.content)
+    const [playing, setPlaying] = useState(false);
+    const source = node.metadata?.downloadUrl || node.metadata?.webpUrl || node.metadata?.content;
+    if (!source)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
                 <Video className="size-7 opacity-35" />
                 <span className="text-sm">{t("canvas.node.emptyVideo")}</span>
             </div>
         );
-    return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-video={node.id} data-canvas-no-zoom />;
+    if (!playing) return <button type="button" className="flex h-full w-full flex-col items-center justify-center gap-3 bg-black text-white" onClick={(event) => { event.stopPropagation(); setPlaying(true); }} onMouseDown={(event) => event.stopPropagation()}><span className="grid size-14 place-items-center rounded-full bg-white/20"><Play className="ml-1 size-7" /></span><span className="text-sm">{t("canvas.node.emptyVideo")}</span></button>;
+    return <video src={source} controls autoPlay className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-video={node.id} data-canvas-no-zoom />;
 }
 
 function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
     const { t } = useTranslation();
-    if (!node.metadata?.content)
+    const [playing, setPlaying] = useState(false);
+    const source = node.metadata?.downloadUrl || node.metadata?.webpUrl || node.metadata?.content;
+    if (!source)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2" style={{ color: theme.node.placeholder }}>
                 <Music2 className="size-7 opacity-35" />
@@ -716,12 +721,9 @@ function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
             </div>
         );
     return (
-        <div className="flex h-full w-full flex-col justify-center gap-3 px-4" style={{ background: theme.node.fill, color: theme.node.text }}>
-            <div className="flex min-w-0 items-center gap-2 text-sm opacity-70">
-                <Music2 className="size-4 shrink-0" />
-                <span className="truncate">{t("canvas.node.audio")}</span>
-            </div>
-            <audio src={node.metadata.content} controls className="w-full" data-canvas-no-zoom />
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-4" style={{ background: theme.node.fill, color: theme.node.text }}>
+            {!playing ? <button type="button" className="grid size-14 place-items-center rounded-full bg-black/10" onClick={(event) => { event.stopPropagation(); setPlaying(true); }} onMouseDown={(event) => event.stopPropagation()}><Play className="ml-1 size-7" /></button> : <audio src={source} autoPlay controls className="w-full" data-canvas-no-zoom />}
+            <span className="truncate text-sm opacity-70">{t("canvas.node.audio")}</span>
         </div>
     );
 }
@@ -754,7 +756,7 @@ function ImageContent({
     const isBatchRoot = batchCount > 1;
     const primaryImageId = node.metadata?.primaryImageId || images[0]?.id;
     const primaryImage = images.find((image) => image.id === primaryImageId);
-    const primaryContent = primaryImage?.content || node.metadata?.content;
+    const primaryContent = primaryImage?.thumbUrl || node.metadata?.thumbUrl || primaryImage?.content || node.metadata?.content;
 
     return (
         <BatchFrame batchCount={batchCount} batchExpanded={batchExpanded}>

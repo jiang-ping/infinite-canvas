@@ -4,6 +4,7 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { localForageStorage } from "@/lib/localforage-storage";
+import { isXaisEmbed, loadXaisCanvasProject, xaisCanvasStorageKey } from "@/services/xais-embed";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "@/types/canvas";
 
@@ -42,28 +43,39 @@ type CanvasStore = {
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
 const CANVAS_STORE_KEY = "infinite-canvas:canvas_store";
 type PersistedCanvasState = Pick<CanvasStore, "projects" | "deletedProjects">;
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let queuedPersistState: PersistedCanvasState | null = null;
+let xaisSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
 const canvasStorage: PersistStorage<CanvasStore> = {
     getItem: async (name) => {
-        const value = await localForageStorage.getItem(name);
-        if (!value) return null;
-        const parsed = JSON.parse(value) as StorageValue<CanvasStore>;
-        queuedPersistState = parsed.state as PersistedCanvasState;
-        return parsed;
+        const value = await localForageStorage.getItem(isXaisEmbed() ? xaisCanvasStorageKey() : name);
+        if (value) {
+            const parsed = JSON.parse(value) as StorageValue<CanvasStore>;
+            queuedPersistState = parsed.state as PersistedCanvasState;
+            // 有草稿时后台同步一次服务器模型与可选参数(不阻塞渲染)
+            if (isXaisEmbed()) void loadXaisCanvasProject().catch(() => undefined);
+            return parsed;
+        }
+        if (isXaisEmbed()) {
+            // 服务器兜底:fileGetV2 返回画布节点 + 模型 + 可选参数
+            const project = await loadXaisCanvasProject();
+            const storageValue = { state: { projects: [project], deletedProjects: [] }, version: 0 } as unknown as StorageValue<CanvasStore>;
+            queuedPersistState = storageValue.state as PersistedCanvasState;
+            return storageValue;
+        }
+        return null;
     },
     setItem: (name, value) => {
         const nextState = value.state as PersistedCanvasState;
         if (queuedPersistState && queuedPersistState.projects === nextState.projects && queuedPersistState.deletedProjects === nextState.deletedProjects) return;
         queuedPersistState = nextState;
-        if (saveTimer) clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => {
-            saveTimer = null;
-            void localForageStorage.setItem(name, JSON.stringify(value));
+        if (xaisSaveTimer) clearTimeout(xaisSaveTimer);
+        xaisSaveTimer = setTimeout(() => {
+            xaisSaveTimer = null;
+            void localForageStorage.setItem(isXaisEmbed() ? xaisCanvasStorageKey() : name, JSON.stringify(value));
         }, 400);
     },
-    removeItem: (name) => localForageStorage.removeItem(name),
+    removeItem: (name) => localForageStorage.removeItem(isXaisEmbed() ? xaisCanvasStorageKey() : name),
 };
 
 export const useCanvasStore = create<CanvasStore>()(

@@ -8,6 +8,7 @@ import { getMediaBlob, resolveMediaUrl, uploadMediaFile, type UploadedFile } fro
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
+import { getXaisOutputForUrl } from "@/services/xais-embed";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -18,8 +19,8 @@ type RequestOptions = { signal?: AbortSignal };
 type VideoMediaOptions = RequestOptions & { videos?: ReferenceVideo[]; audios?: ReferenceAudio[] };
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 
-export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
-export type VideoGenerationTask = { id: string; provider: "openai" | "gemini" | "plugin"; model: string };
+export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string; __xaisOutput?: { taskId: string; att: string; thumb: string; webp: string; download: string } };
+export type VideoGenerationTask = { id: string; provider: "openai" | "gemini" | "plugin"; model: string; xaisOutput?: VideoGenerationResult["__xaisOutput"] };
 type GeminiInlineData = { bytesBase64Encoded: string; mimeType: string };
 type GeminiVideoOperation = {
     name?: string;
@@ -113,13 +114,15 @@ async function createPluginVideoTask(config: AiConfig, model: string, script: st
                 generateAudio: boolConfig(config.videoGenerateAudio, true),
                 watermark: boolConfig(config.videoWatermark, false),
                 mode: resolveVideoMode(config.videoMode, refs.length),
+                // Xais embed:用户所选自定义参数原值放最后,覆盖归一化转换值(custom_field 与界面一致)
+                ...(config.xaisFields || {}),
             },
             signal: options?.signal,
         }),
     );
     const id = nanoid();
     pluginVideoResults.set(id, result);
-    return { id, provider: "plugin", model };
+    return { id, provider: "plugin", model, xaisOutput: result.__xaisOutput };
 }
 
 function videoPluginResult(result: unknown): VideoGenerationResult {
@@ -129,16 +132,20 @@ function videoPluginResult(result: unknown): VideoGenerationResult {
         const record = result as Record<string, unknown>;
         if (record.blob instanceof Blob) return { blob: record.blob };
         const url = [record.url, record.video_url, record.result_url].find((value) => typeof value === "string" && value) as string | undefined;
-        if (url) return { url, mimeType: "video/mp4" };
+        if (url) return { url, mimeType: "video/mp4", __xaisOutput: typeof record.taskId === "string" && typeof record.att === "string" ? { taskId: record.taskId, att: record.att, thumb: String(record.thumb || ""), webp: String(record.webp || ""), download: String(record.download || "") } : getXaisOutputForUrl(url) };
     }
     throw new Error(apiText("scriptNoVideo"));
 }
 
 export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
-    if (result.blob) return uploadMediaFile(result.blob, "video");
+    if (result.blob) {
+        const uploaded = await uploadMediaFile(result.blob, "video");
+        return result.__xaisOutput ? Object.assign(uploaded, { __xaisOutput: result.__xaisOutput }) : uploaded;
+    }
     if (result.url) {
         try {
-            return await uploadMediaFile(result.url, "video");
+            const uploaded = await uploadMediaFile(result.url, "video");
+            return result.__xaisOutput ? Object.assign(uploaded, { __xaisOutput: result.__xaisOutput }) : uploaded;
         } catch {
             return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
         }

@@ -12,7 +12,12 @@ import NotFound from "@/pages/not-found";
 import PromptsPage from "@/pages/prompts";
 import VideoPage from "@/pages/video";
 
-export const router = createBrowserRouter([
+// 应用部署在 vite base 目录下（当前为 /fe/infinite/），router 必须使用相同 basename，
+// 否则深链地址会落入 NotFound（“页面不存在”）。
+const basename = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+export const router = createBrowserRouter(
+    [
     {
         element: (
             <UserLayout>
@@ -32,4 +37,6 @@ export const router = createBrowserRouter([
         ],
     },
     { path: "*", element: <NotFound /> },
-]);
+    ],
+    { basename },
+);

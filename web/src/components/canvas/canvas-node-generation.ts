@@ -40,7 +40,9 @@ export type NodeGenerationInput = NodeGenerationResourceInput | NodeGenerationGr
 export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string): NodeGenerationContext {
     const inputs = buildNodeGenerationInputs(nodeId, nodes, connections);
     const sourceNode = nodes.find((node) => node.id === nodeId);
-    if (sourceNode?.type === CanvasNodeType.Config && Boolean(sourceNode.metadata?.composerContent?.trim())) {
+    // Xais embed:composer 含 @[node:...] 引用 token 时按 token 精确选择资源;
+    // 无 token 时回退通用路径(包含所有连接资源),否则"连接了参考图但未插入引用"会导致 ref 为空
+    if (sourceNode?.type === CanvasNodeType.Config && Boolean(sourceNode.metadata?.composerContent?.trim()) && /@\[node:[^\]]+\]/.test(sourceNode.metadata?.composerContent || "")) {
         return buildComposerGenerationContext(inputs, prompt);
     }
 

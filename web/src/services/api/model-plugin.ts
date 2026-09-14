@@ -974,20 +974,24 @@ return await generateText({
 }
 
 /** Normalize whatever an image script returns into the app's generated-image shape. */
-export function normalizePluginImages(result: unknown): string[] {
+
+
+/** Normalize plugin media outputs while retaining XAIS task metadata. */
+export function normalizePluginImages(result: unknown): Array<{ url: string; taskId?: string; att?: string; thumb?: string; webp?: string; download?: string }> {
     const items = Array.isArray(result) ? result : [result];
-    const urls = items
-        .map((item) => {
-            if (typeof item === "string") return item;
-            if (item && typeof item === "object") {
-                const record = item as Record<string, unknown>;
-                if (typeof record.dataUrl === "string") return record.dataUrl;
-                if (typeof record.url === "string") return record.url;
-                if (typeof record.b64_json === "string") return `data:image/png;base64,${record.b64_json}`;
-            }
-            return "";
-        })
-        .filter(Boolean);
-    if (!urls.length) throw new Error(i18n.t("modelPlugin.noImages"));
-    return urls;
+    const outputs = items.map((item) => {
+        if (typeof item === "string") return { url: item };
+        if (!item || typeof item !== "object") return { url: "" };
+        const record = item as Record<string, unknown>;
+        return {
+            url: typeof record.dataUrl === "string" ? record.dataUrl : typeof record.url === "string" ? record.url : typeof record.b64_json === "string" ? `data:image/png;base64,${record.b64_json}` : "",
+            taskId: typeof record.taskId === "string" ? record.taskId : undefined,
+            att: typeof record.att === "string" ? record.att : undefined,
+            thumb: typeof record.thumb === "string" ? record.thumb : undefined,
+            webp: typeof record.webp === "string" ? record.webp : undefined,
+            download: typeof record.download === "string" ? record.download : undefined,
+        };
+    }).filter((item) => item.url);
+    if (!outputs.length) throw new Error(i18n.t("modelPlugin.noImages"));
+    return outputs;
 }
