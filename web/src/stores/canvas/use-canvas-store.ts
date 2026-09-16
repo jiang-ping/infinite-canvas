@@ -4,7 +4,7 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { localForageStorage } from "@/lib/localforage-storage";
-import { isXaisEmbed, loadXaisCanvasProject, xaisCanvasStorageKey } from "@/services/xais-embed";
+import { isXaisEmbed, loadXaisCanvasProject, xaisCanvasStorageKey, xaisFileId } from "@/services/xais-embed";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "@/types/canvas";
 
@@ -46,18 +46,33 @@ type PersistedCanvasState = Pick<CanvasStore, "projects" | "deletedProjects">;
 let queuedPersistState: PersistedCanvasState | null = null;
 let xaisSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
+const xaisSaveMarker = () => `xais-canvas-saved:${xaisFileId()}`;
+
+/** Cancel a pending draft write before deleting the draft after a successful server save. */
+export async function clearXaisCanvasDraft() {
+    if (xaisSaveTimer) {
+        clearTimeout(xaisSaveTimer);
+        xaisSaveTimer = null;
+    }
+    queuedPersistState = null;
+    await localForageStorage.removeItem(xaisCanvasStorageKey());
+}
+
 const canvasStorage: PersistStorage<CanvasStore> = {
     getItem: async (name) => {
-        const value = await localForageStorage.getItem(isXaisEmbed() ? xaisCanvasStorageKey() : name);
+        const embed = isXaisEmbed();
+        // A new iframe instance is allowed to persist again after it has loaded the saved server state.
+        if (embed && typeof sessionStorage !== "undefined") sessionStorage.removeItem(xaisSaveMarker());
+        const storageKey = embed ? xaisCanvasStorageKey() : name;
+        const value = await localForageStorage.getItem(storageKey);
         if (value) {
             const parsed = JSON.parse(value) as StorageValue<CanvasStore>;
             queuedPersistState = parsed.state as PersistedCanvasState;
-            // 有草稿时后台同步一次服务器模型与可选参数(不阻塞渲染)
-            if (isXaisEmbed()) void loadXaisCanvasProject().catch(() => undefined);
+            // 本地草稿优先：有草稿时不请求服务器，也不以服务器数据覆盖用户未保存的修改。
             return parsed;
         }
-        if (isXaisEmbed()) {
-            // 服务器兜底:fileGetV2 返回画布节点 + 模型 + 可选参数
+        if (embed) {
+            // 只有当前文件没有本地草稿时才从服务器兜底加载。
             const project = await loadXaisCanvasProject();
             const storageValue = { state: { projects: [project], deletedProjects: [] }, version: 0 } as unknown as StorageValue<CanvasStore>;
             queuedPersistState = storageValue.state as PersistedCanvasState;
@@ -72,6 +87,7 @@ const canvasStorage: PersistStorage<CanvasStore> = {
         if (xaisSaveTimer) clearTimeout(xaisSaveTimer);
         xaisSaveTimer = setTimeout(() => {
             xaisSaveTimer = null;
+            if (isXaisEmbed() && typeof sessionStorage !== "undefined" && sessionStorage.getItem(xaisSaveMarker()) === "1") return;
             void localForageStorage.setItem(isXaisEmbed() ? xaisCanvasStorageKey() : name, JSON.stringify(value));
         }, 400);
     },

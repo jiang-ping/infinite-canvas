@@ -25,21 +25,30 @@ export type CanvasNodeStatus = "idle" | "success" | "loading" | "error";
 export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 export type CanvasImageGenerationType = "generation" | "edit";
 
-export type CanvasNodeImage = {
+export type CanvasNodeMedia = {
     id: string;
     status: CanvasNodeStatus;
     errorDetails?: string;
-    content: string;
+    content?: string;
     storageKey?: string;
-    naturalWidth: number;
-    naturalHeight: number;
+    thumbStorageKey?: string;
+    webpStorageKey?: string;
+    downloadStorageKey?: string;
+    naturalWidth?: number;
+    naturalHeight?: number;
     bytes: number;
     mimeType: string;
+    durationMs?: number;
     taskId?: string;
     att?: string;
     thumbUrl?: string;
     webpUrl?: string;
     downloadUrl?: string;
+};
+
+export type CanvasNodeImage = CanvasNodeMedia & {
+    naturalWidth: number;
+    naturalHeight: number;
 };
 
 export type CanvasNodeText = {
@@ -81,8 +90,12 @@ export type CanvasNodeMetadata = {
     naturalHeight?: number;
     freeResize?: boolean;
     images?: CanvasNodeImage[];
+    media?: CanvasNodeMedia[];
     primaryImageId?: string;
     storageKey?: string;
+    thumbStorageKey?: string;
+    webpStorageKey?: string;
+    downloadStorageKey?: string;
     mimeType?: string;
     bytes?: number;
     durationMs?: number;
@@ -94,12 +107,20 @@ export type CanvasNodeMetadata = {
     webpUrl?: string;
     downloadUrl?: string;
 
-
-
-
-
     xaisFields?: Record<string, string>;
+    /** Xais embed:反推提示词节点 */
     visionOnly?: boolean;
+
+
+
+
+
+
+
+
+
+
+
     groupId?: string;
     interactive?: boolean; // Plugin node interaction/move state; see CanvasNodeDefinition.interactionToggle.
 };

@@ -977,6 +977,12 @@ return await generateText({
 
 
 /** Normalize plugin media outputs while retaining XAIS task metadata. */
+
+
+/** Normalize plugin media outputs while retaining XAIS task metadata. */
+
+
+/** Normalize plugin media outputs while retaining XAIS task metadata. */
 export function normalizePluginImages(result: unknown): Array<{ url: string; taskId?: string; att?: string; thumb?: string; webp?: string; download?: string }> {
     const items = Array.isArray(result) ? result : [result];
     const outputs = items.map((item) => {

@@ -1,4 +1,4 @@
-import type { CanvasConnection, CanvasNodeData, ViewportTransform } from '@/types/canvas';
+import type { CanvasConnection, CanvasNodeData, CanvasNodeMetadata, ViewportTransform } from '@/types/canvas';
 import { useCanvasStore } from '@/stores/canvas/use-canvas-store';
 import type { CanvasProject } from '@/stores/canvas/use-canvas-store';
 import type { CanvasBackgroundMode } from '@/lib/canvas-theme';
@@ -377,15 +377,60 @@ function nodeFromPage(page: RemotePage, taskById: Map<string, RemoteTask>, image
     : {};
   // 新格式不再保存 node.id，页面外层 page.id 是唯一来源；同时兼容旧格式。
   if (stored?.position && stored.type) {
-    const metadata = stored.metadata ? { ...stored.metadata } : {};
+    const model = canvasModelName(page.model);
+    const compactImages = stored.type === 'image' && Array.isArray((stored as { images?: unknown }).images)
+      ? ((stored as { images: Array<Record<string, unknown>> }).images)
+          .filter(image => typeof image.att === 'string' && image.att)
+          .map(image => {
+            const att = image.att as string;
+            return {
+              id: att,
+              att,
+              status: image.status === 'error' ? 'error' : image.status === 'loading' ? 'loading' : 'success',
+              naturalWidth: Number(image.naturalWidth) || 0,
+              naturalHeight: Number(image.naturalHeight) || 0,
+              bytes: Number(image.bytes) || 0,
+              mimeType: '',
+              content: imageUrl.thumb[att],
+              thumbUrl: imageUrl.thumb[att],
+              webpUrl: imageUrl.webp[att],
+              downloadUrl: imageUrl.download[att],
+            };
+          })
+      : undefined;
+    const metadata = (stored.metadata ? { ...stored.metadata } : {
+      ...(compactImages ? { images: compactImages } : {}),
+      ...(typeof (stored as { size?: unknown }).size === 'string' ? { size: (stored as { size: string }).size } : {}),
+      ...(typeof (stored as { quality?: unknown }).quality === 'string' ? { quality: (stored as { quality: string }).quality } : {}),
+      ...(typeof (stored as { primaryImageId?: unknown }).primaryImageId === 'string'
+        ? { primaryImageId: compactImages?.some(image => image.id === (stored as { primaryImageId: string }).primaryImageId) ? (stored as { primaryImageId: string }).primaryImageId : compactImages?.[0]?.id }
+        : {}),
+    }) as CanvasNodeMetadata;
     if (page.prompt !== undefined) metadata.prompt = page.prompt;
-    const model = canvasModelName(page.model ?? metadata?.model);
     if (model !== undefined) metadata.model = model;
     metadata.references = page.ref || [];
+    if (stored.type === 'image') metadata.generationType = page.ref?.length ? 'edit' : 'generation';
     Object.assign(metadata, mediaUrls);
-    if (mediaUrls.thumbUrl && stored.type === 'image') metadata.content = mediaUrls.thumbUrl;
+    const primary = metadata.images?.find(image => image.id === metadata.primaryImageId) || metadata.images?.[0];
+    if (primary?.content) {
+      metadata.content = primary.content;
+      metadata.storageKey = primary.storageKey;
+      metadata.naturalWidth = primary.naturalWidth;
+      metadata.naturalHeight = primary.naturalHeight;
+      metadata.bytes = primary.bytes;
+      metadata.mimeType = primary.mimeType;
+      metadata.att = primary.att;
+    } else if (mediaUrls.thumbUrl && stored.type === 'image') metadata.content = mediaUrls.thumbUrl;
     else if (mediaUrls.thumbUrl && (stored.type === 'video' || stored.type === 'audio')) delete metadata.content;
-    return { ...stored, id: page.id, metadata } as CanvasNodeData;
+    return {
+      id: page.id,
+      type: stored.type,
+      title: page.prompt || 'Canvas Node',
+      position: stored.position,
+      width: stored.width,
+      height: stored.height,
+      metadata,
+    } as CanvasNodeData;
   }
   const metadata = ((custom.xaisCanvas as { metadata?: Record<string, unknown> } | undefined)?.metadata ||
     {}) as CanvasNodeData['metadata'];
@@ -427,20 +472,28 @@ export async function loadXaisCanvasProject() {
 }
 
 function nodeForPageStorage(node: CanvasNodeData) {
-  // 页面外层已经单独保存 prompt/model/id，custom_field.xaisCanvas.node 不再保存这些重复字段。
-  const storedNode = { ...node } as Record<string, unknown>;
-  delete storedNode.id;
-  const metadata = node.metadata ? { ...node.metadata } : undefined;
-  if (metadata) {
-    delete metadata.prompt;
-    delete metadata.model;
-    if (metadata.taskId) {
-      delete metadata.content;
-      delete metadata.storageKey;
-    }
-    storedNode.metadata = metadata;
-  }
-  return storedNode;
+  // 页面外层单独保存 id/prompt/model；图片附件只保存 att 和必要的尺寸信息。
+  const metadata = node.metadata || {};
+  const images = node.type === 'image'
+    ? (metadata.images || []).map(image => ({
+        att: image.att,
+        naturalWidth: image.naturalWidth,
+        naturalHeight: image.naturalHeight,
+        bytes: image.bytes,
+        status: image.status,
+      })).filter(image => image.att)
+    : undefined;
+  const primary = metadata.images?.find(image => image.id === metadata.primaryImageId);
+  return {
+    type: node.type,
+    position: node.position,
+    width: node.width,
+    height: node.height,
+    ...(images?.length ? { images } : {}),
+    ...(metadata.size ? { size: metadata.size } : {}),
+    ...(metadata.quality ? { quality: metadata.quality } : {}),
+    ...(primary?.att ? { primaryImageId: primary.att } : {}),
+  };
 }
 
 function pageFromNode(node: CanvasNodeData) {

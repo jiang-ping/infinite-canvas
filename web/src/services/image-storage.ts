@@ -11,7 +11,11 @@ export type UploadedImage = {
     height: number;
     bytes: number;
     mimeType: string;
+    __xaisOutput?: unknown;
 };
+
+type ImageVariant = "thumb" | "webp" | "download";
+type XaisOutputRegistry = Record<string, { taskId: string; att: string; thumb: string; webp: string; download: string }>;
 
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
 const imageLogStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_generation_logs" });
@@ -25,7 +29,12 @@ const IMAGE_TIMEOUT_ERROR = "ImageTimeoutError";
 
 type ImageReadOptions = { signal?: AbortSignal };
 
+function xaisOutputForUrl(url: string | undefined) {
+    return url ? (globalThis as typeof globalThis & { __xaisCanvasOutputs?: XaisOutputRegistry }).__xaisCanvasOutputs?.[url] : undefined;
+}
+
 export async function uploadImage(input: string | Blob, options?: ImageReadOptions): Promise<UploadedImage> {
+    const xaisOutput = typeof input === "string" ? xaisOutputForUrl(input) : undefined;
     if (typeof input !== "string") return storeImage(input, options);
 
     let blob: Blob;
@@ -35,9 +44,10 @@ export async function uploadImage(input: string | Blob, options?: ImageReadOptio
         if (options?.signal?.aborted || isNamedError(error, IMAGE_RESPONSE_ERROR) || isNamedError(error, IMAGE_TIMEOUT_ERROR) || !/^https?:\/\//i.test(input)) throw error;
         const meta = await loadImageMeta(input, options, IMAGE_REMOTE_LOAD_TIMEOUT_MS);
         if (!meta) throw error;
-        return { url: input, width: meta.width, height: meta.height, bytes: 0, mimeType: "" };
+        return { url: input, width: meta.width, height: meta.height, bytes: 0, mimeType: "", ...(xaisOutput ? { __xaisOutput: xaisOutput } : {}) };
     }
-    return storeImage(blob, options);
+    const stored = await storeImage(blob, options);
+    return xaisOutput ? { ...stored, __xaisOutput: xaisOutput } : stored;
 }
 
 async function storeImage(blob: Blob, options?: ImageReadOptions): Promise<UploadedImage> {
@@ -152,10 +162,36 @@ export async function setImageBlob(storageKey: string, blob: Blob) {
     return url;
 }
 
+function remoteVariantKey(att: string, variant: ImageVariant) {
+    return `image:remote:${variant}:${encodeURIComponent(att)}`;
+}
+
+/** Cache a server image variant so local-first drafts do not depend on expiring signed URLs. */
+export async function cacheRemoteImageVariant(att: string, variant: ImageVariant, source?: string) {
+    if (!source) return null;
+    const storageKey = remoteVariantKey(att, variant);
+    const cached = await store.getItem<Blob>(storageKey);
+    if (cached) return { storageKey, url: await resolveImageUrl(storageKey) };
+    try {
+        const blob = await fetchImageBlob(source);
+        await store.setItem(storageKey, blob);
+        const url = URL.createObjectURL(blob);
+        objectUrls.set(storageKey, url);
+        return { storageKey, url };
+    } catch {
+        return null;
+    }
+}
+
 export async function imageToDataUrl(image: { url?: string; dataUrl?: string; storageKey?: string }, options?: ImageReadOptions) {
     const url = image.dataUrl || (await resolveImageUrl(image.storageKey, image.url || ""));
     if (!url || url.startsWith("data:")) return url;
     return blobToDataUrl(await fetchImageBlob(url, options));
+}
+
+/** Remove persisted blobs but keep active object URLs usable by the current iframe. */
+export async function removeStoredImages(keys: Iterable<string>) {
+    await Promise.all(Array.from(new Set(keys)).map((key) => store.removeItem(key)));
 }
 
 export async function deleteStoredImages(keys: Iterable<string>) {

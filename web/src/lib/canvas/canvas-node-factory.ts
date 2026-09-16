@@ -24,20 +24,35 @@ export function createCanvasNode(type: CanvasNodeTypeId, position: Position, met
     };
 }
 
+function outputMetadata(value: unknown): CanvasNodeMetadata {
+    if (!value || typeof value !== "object") return {};
+    const output = value as { taskId?: unknown; att?: unknown; thumb?: unknown; webp?: unknown; download?: unknown };
+    if (typeof output.taskId !== "string" || typeof output.att !== "string") return {};
+    return {
+        taskId: output.taskId,
+        att: output.att,
+        thumbUrl: typeof output.thumb === "string" ? output.thumb : undefined,
+        webpUrl: typeof output.webp === "string" ? output.webp : undefined,
+        downloadUrl: typeof output.download === "string" ? output.download : undefined,
+    };
+}
+
 export function imageMetadata(image: UploadedImage): CanvasNodeMetadata {
-    return { content: image.url, storageKey: image.storageKey, status: "success", naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType };
+    return { content: image.url, storageKey: image.storageKey, status: "success", naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType, ...outputMetadata(image.__xaisOutput) };
 }
 
 export function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
-    return { content: video.url, storageKey: video.storageKey, status: "success", naturalWidth: video.width, naturalHeight: video.height, bytes: video.bytes, mimeType: video.mimeType || "video/mp4", durationMs: video.durationMs };
+    return { content: video.url, storageKey: video.storageKey, status: "success", naturalWidth: video.width, naturalHeight: video.height, bytes: video.bytes, mimeType: video.mimeType || "video/mp4", durationMs: video.durationMs, ...outputMetadata(video.__xaisOutput) };
 }
 
 export function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {
-    return { content: audio.url, storageKey: audio.storageKey, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs };
+    return { content: audio.url, storageKey: audio.storageKey, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs, ...outputMetadata(audio.__xaisOutput) };
 }
 
 export function referenceUrl(image: ReferenceImage) {
-    return image.storageKey || image.url || (!image.dataUrl.startsWith("data:") ? image.dataUrl : undefined);
+    if (image.storageKey && !image.storageKey.startsWith("image:")) return image.storageKey;
+    if (image.url && !image.url.startsWith("blob:") && !image.url.startsWith("data:")) return image.url;
+    return undefined;
 }
 
 export function buildImageGenerationMetadata(type: CanvasImageGenerationType, config: AiConfig, count: number, references: ReferenceImage[]): CanvasNodeMetadata {

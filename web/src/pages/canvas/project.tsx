@@ -2358,12 +2358,18 @@ function InfiniteCanvasPage() {
                     const isConfigNode = sourceNode?.type === CanvasNodeType.Config;
                     const isImageNode = sourceNode?.type === CanvasNodeType.Image;
                     const isEmptyImageNode = isImageNode && !sourceNode?.metadata?.content;
-                    const sourceReference =
-                        isImageNode && sourceNode?.metadata?.content
-                            ? [{ id: sourceNode.id, name: `${sourceNode.title || sourceNode.id}.png`, type: sourceNode.metadata.mimeType || "image/png", dataUrl: sourceNode.metadata.content, storageKey: sourceNode.metadata.storageKey }]
-                            : [];
-                    const referenceImages = [...new Map([...sourceReference, ...generationContext.referenceImages].map((image) => [image.id, image])).values()];
-                    const generationType = referenceImages.length ? ("edit" as const) : ("generation" as const);
+                    // Regenerating an existing image creates a sibling node with the original
+                    // generation parameters; the output image itself must not become a new reference.
+                    const savedImageMetadata = isImageNode && !isEmptyImageNode ? sourceNode?.metadata : undefined;
+                    const savedReferenceImages = savedImageMetadata ? await resolveMetadataReferences(savedImageMetadata) : undefined;
+                    // 已有图片是上一次任务的输出，不应参与本次任务的输入；只恢复原任务保存的参考图。
+                    const referenceImages = savedImageMetadata
+                        ? savedImageMetadata.generationType === "edit"
+                            ? savedReferenceImages || []
+                            : []
+                        : [...new Map(generationContext.referenceImages.map((image) => [image.id, image])).values()];
+                    const imagePrompt = savedImageMetadata?.prompt?.trim() || effectivePrompt;
+                    const generationType = savedImageMetadata?.generationType === "edit" ? ("edit" as const) : referenceImages.length ? ("edit" as const) : ("generation" as const);
                     const generationMetadata = buildImageGenerationMetadata(generationType, generationConfig, count, referenceImages);
                     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
                     const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
@@ -2374,7 +2380,7 @@ function InfiniteCanvasPage() {
                     const rootNode: CanvasNodeData = {
                         id: rootId,
                         type: CanvasNodeType.Image,
-                        title: effectivePrompt.slice(0, 32) || "Generated Image",
+                        title: imagePrompt.slice(0, 32) || "Generated Image",
                         position: {
                             x: isEmptyImageNode ? parentPosition.x : parentPosition.x + parentConfig.width + 96,
                             y: parentPosition.y + parentConfig.height / 2 - imageConfig.height / 2,
@@ -2382,7 +2388,7 @@ function InfiniteCanvasPage() {
                         width: isEmptyImageNode ? sourceNode?.width || imageConfig.width : imageConfig.width,
                         height: isEmptyImageNode ? sourceNode?.height || imageConfig.height : imageConfig.height,
                         metadata: {
-                            prompt: effectivePrompt,
+                            prompt: imagePrompt,
                             status: NODE_STATUS_LOADING,
                             images: imageIds.map((id) => ({ id, status: NODE_STATUS_LOADING, content: "", naturalWidth: 0, naturalHeight: 0, bytes: 0, mimeType: "" })),
                             ...generationMetadata,
@@ -2423,10 +2429,12 @@ function InfiniteCanvasPage() {
                         ),
                         ...(isEmptyImageNode ? [] : [rootNode]),
                     ]);
-                    if (!isEmptyImageNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: rootId }]);
-                    setSelectedNodeIds(new Set([nodeId]));
+                    // 已有图片是输出结果，不应作为新任务的隐式参考图。
+                    // 原任务的参考图和参数已从元数据中恢复，因此不创建 A -> 新节点的连接。
+                    if (!isEmptyImageNode && !isImageNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: rootId }]);
+                    setSelectedNodeIds(new Set([rootId]));
                     setSelectedConnectionId(null);
-                    setDialogNodeId(nodeId);
+                    setDialogNodeId(rootId);
 
                     const controller = rootId === nodeId ? runController : startGenerationRequest(rootId, nodeId, nodeId, runController);
                     let hasSuccess = false;
@@ -2436,8 +2444,8 @@ function InfiniteCanvasPage() {
                         imageIds.map(async (imageId) => {
                             try {
                                 const image = referenceImages.length
-                                    ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, { signal: controller.signal }).then((items) => items[0])
-                                    : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: controller.signal }).then((items) => items[0]);
+                                    ? await requestEdit({ ...generationConfig, count: "1" }, imagePrompt, referenceImages, { signal: controller.signal }).then((items) => items[0])
+                                    : await requestGeneration({ ...generationConfig, count: "1" }, imagePrompt, { signal: controller.signal }).then((items) => items[0]);
 const uploaded = await uploadImage(image.dataUrl, { signal: controller.signal });
                                  const output = getXaisOutputForUrl(image.dataUrl);
                                  const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
@@ -2460,6 +2468,9 @@ const uploaded = await uploadImage(image.dataUrl, { signal: controller.signal })
                                                 naturalHeight: item.naturalHeight,
                                                 bytes: item.bytes,
                                                 mimeType: item.mimeType,
+                                                // 将 Xais 任务信息同步到节点根 metadata，保存时才能生成 page.tasks。
+                                                // 仅保存在 images 子项会导致新建的第二个图片节点重新打开时没有任务结果。
+                                                ...xaisOutputMetadata(image),
                                                 images,
                                                 primaryImageId: imageId,
                                             },

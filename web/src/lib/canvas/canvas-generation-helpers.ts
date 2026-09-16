@@ -46,13 +46,36 @@ export async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
     return Promise.all(
         nodes.map(async (node) => {
             const metadata = node.metadata;
-            const content = metadata?.content;
-            if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && metadata?.storageKey) return { ...node, metadata: { ...metadata, content: await resolveMediaUrl(metadata.storageKey, content) } };
-            if (node.type !== CanvasNodeType.Image || !metadata || !content) return node;
-            const images = await Promise.all((metadata.images || []).map(async (image) => (image.content ? { ...image, content: await resolveImageUrl(image.storageKey, image.content) } : image)));
-            if (metadata.storageKey) return { ...node, metadata: { ...metadata, content: await resolveImageUrl(metadata.storageKey, content), images } };
-            if (!content.startsWith("data:image/")) return node;
-            return { ...node, metadata: { ...metadata, ...imageMetadata(await uploadImage(content)) } };
+            if (!metadata) return node;
+            // 优先读取本地缓存，只有本地没有对应图片时才使用服务器 URL，避免重复消耗带宽。
+            const imageCache = async (url: string | undefined, ...keys: Array<string | undefined>) => {
+                for (const key of keys) {
+                    if (!key) continue;
+                    const localUrl = await resolveImageUrl(key);
+                    if (localUrl) return localUrl;
+                }
+                return url || "";
+            };
+            const mediaCache = async (url: string | undefined, key: string | undefined) => (key ? resolveMediaUrl(key, url || "") : url || "");
+            if (node.type === CanvasNodeType.Image) {
+                const images = await Promise.all((metadata.images || []).map(async (image) => ({
+                    ...image,
+                    // 生成结果当前使用 image.storageKey；服务器保存格式则使用各变体 key。
+                    // 回退到 storageKey，确保 iframe 关闭后从 localForage 恢复 blob URL。
+                    content: await imageCache(image.content, image.storageKey, image.thumbStorageKey),
+                    thumbUrl: await imageCache(image.thumbUrl, image.storageKey, image.thumbStorageKey),
+                    webpUrl: await imageCache(image.webpUrl, image.storageKey, image.webpStorageKey),
+                    downloadUrl: await imageCache(image.downloadUrl, image.storageKey, image.downloadStorageKey),
+                })));
+                const primary = images.find((image) => image.id === metadata.primaryImageId) || images[0];
+                return { ...node, metadata: { ...metadata, images, content: await imageCache(metadata.content, metadata.storageKey, metadata.thumbStorageKey), thumbUrl: await imageCache(metadata.thumbUrl, metadata.storageKey, metadata.thumbStorageKey), webpUrl: await imageCache(metadata.webpUrl, metadata.storageKey, metadata.webpStorageKey), downloadUrl: await imageCache(metadata.downloadUrl, metadata.storageKey, metadata.downloadStorageKey), ...(primary ? { naturalWidth: primary.naturalWidth, naturalHeight: primary.naturalHeight, bytes: primary.bytes } : {}) } };
+            }
+            if (node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) {
+                const media = await Promise.all((metadata.media || []).map(async (item) => ({ ...item, downloadUrl: await mediaCache(item.downloadUrl, item.downloadStorageKey) })));
+                return { ...node, metadata: { ...metadata, media, downloadUrl: await mediaCache(metadata.downloadUrl, metadata.downloadStorageKey) } };
+            }
+            if (metadata.storageKey) return { ...node, metadata: { ...metadata, content: await resolveMediaUrl(metadata.storageKey, metadata.content) } };
+            return node;
         }),
     );
 }

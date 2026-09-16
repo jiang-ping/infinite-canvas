@@ -40,6 +40,34 @@ export async function setMediaBlob(storageKey: string, blob: Blob) {
     return url;
 }
 
+function remoteMediaKey(att: string) {
+    return `media:remote:download:${encodeURIComponent(att)}`;
+}
+
+/** Cache a server-backed media URL so a local-first draft does not depend on an expiring signed URL. */
+export async function cacheRemoteMedia(att: string, source?: string) {
+    if (!source) return null;
+    const storageKey = remoteMediaKey(att);
+    const cached = await store.getItem<Blob>(storageKey);
+    if (cached) return { storageKey, url: await resolveMediaUrl(storageKey) };
+    try {
+        const response = await fetch(withLocalProxy(source));
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        await store.setItem(storageKey, blob);
+        const url = URL.createObjectURL(blob);
+        objectUrls.set(storageKey, url);
+        return { storageKey, url };
+    } catch {
+        return null;
+    }
+}
+
+/** Remove persisted blobs but keep active object URLs usable by the current iframe. */
+export async function removeStoredMedia(keys: Iterable<string>) {
+    await Promise.all(Array.from(new Set(keys)).map((key) => store.removeItem(key)));
+}
+
 export async function deleteStoredMedia(keys: Iterable<string>) {
     await Promise.all(
         Array.from(new Set(keys)).map(async (key) => {
