@@ -38,7 +38,9 @@ function outputMetadata(value: unknown): CanvasNodeMetadata {
 }
 
 export function imageMetadata(image: UploadedImage): CanvasNodeMetadata {
-    return { content: image.url, storageKey: image.storageKey, status: "success", naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType, ...outputMetadata(image.__xaisOutput) };
+    const output = outputMetadata(image.__xaisOutput);
+    // att 在前:新内容没有对应 Xais 输出时显式清空,避免原地替换内容后复用过期附件
+    return { content: image.url, storageKey: image.storageKey, status: "success", naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType, att: output.att, ...output };
 }
 
 export function videoMetadata(video: UploadedFile): CanvasNodeMetadata {

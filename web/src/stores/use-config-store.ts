@@ -24,6 +24,8 @@ export type ChannelModel = {
     customSelectFields?: ModelCustomSelectField[];
     /** 支持图片输入的文生文模型(ti2t);反推提示词等场景只列出这些 */
     vision?: boolean;
+    /** 主工程配置了提示词增强 system prompt 时存在 */
+    promptEnhance?: string;
 };
 
 export type ModelChannel = {

@@ -194,12 +194,14 @@ function generationLabel(type: NodeGenerationResourceInput["type"], index: numbe
 
 function readReferenceImage(node: CanvasNodeData): ReferenceImage | null {
     if (node.type !== CanvasNodeType.Image || !node.metadata?.content) return null;
+    const primary = node.metadata.images?.find((image) => image.id === node.metadata?.primaryImageId) || node.metadata.images?.[0];
     return {
         id: node.id,
         name: `${node.title || node.id}.png`,
         type: node.metadata.mimeType || "image/png",
         dataUrl: node.metadata.content,
         storageKey: node.metadata.storageKey,
+        att: node.metadata.att || primary?.att,
     };
 }
 

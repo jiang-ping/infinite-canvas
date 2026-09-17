@@ -2,6 +2,7 @@ import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/store
 import i18n from "@/i18n";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
+import { isXaisEmbed, xaisAttName } from "@/services/xais-embed";
 import { imageMetadata, referenceUrl } from "@/lib/canvas/canvas-node-factory";
 import type { NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
@@ -33,10 +34,14 @@ export function generationReferenceUrls(context: { referenceImages: ReferenceIma
 export async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
     if (metadata.generationType !== "edit") return [];
     if (!metadata.references?.length) return null;
+    const embed = isXaisEmbed();
     const references = await Promise.all(
         metadata.references.map(async (url, index) => {
             const dataUrl = url.startsWith("image:") ? await resolveImageUrl(url, "") : url;
-            return dataUrl ? { id: `${index}`, name: `reference-${index}.png`, type: "image/png", dataUrl, storageKey: url.startsWith("image:") ? url : undefined } : null;
+            if (!dataUrl) return null;
+            // Xais embed:远程参考图能解析出原附件名时直接复用,生成时跳过下载与重新上传
+            const att = embed && !url.startsWith("image:") ? xaisAttName(url) : null;
+            return { id: `${index}`, name: `reference-${index}.png`, type: "image/png", dataUrl, storageKey: url.startsWith("image:") ? url : undefined, ...(att ? { att } : {}) };
         }),
     );
     return references.every(Boolean) ? (references as ReferenceImage[]) : null;
@@ -188,6 +193,7 @@ export function sourceNodeReferenceImages(node: CanvasNodeData | null) {
             type: node.metadata.mimeType || "image/png",
             dataUrl: node.metadata.content,
             storageKey: node.metadata.storageKey,
+            att: node.metadata.att || node.metadata.images?.find((image) => image.id === node.metadata?.primaryImageId)?.att || node.metadata.images?.[0]?.att,
         },
     ];
 }

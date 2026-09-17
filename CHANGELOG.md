@@ -2,6 +2,9 @@
 
 ## Unreleased
 
++ [修复] 画布读取图片改用 cache:no-store 直接下载 OSS 签名地址，避免 img 标签预载的无 CORS 头响应污染 HTTP 缓存导致 fetch 报错；Xais 嵌入模式下直连失败才回退同源 /xais/img 代理。
++ [优化] Xais 嵌入模式下，带服务器附件名（att）的图片节点作为参考图时直接复用原 att 进入 worker 任务的 ref，跳过图片下载与 fileAttachmentUploadUrl 重新上传；生成结果没有对应附件时显式清空 att，避免复用过期附件。
+
 ## v0.18.0 - 2026-09-07
 
 + [调整] 图片 1K / 2K / 4K 按宽高比使用固定尺寸表。

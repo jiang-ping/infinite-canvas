@@ -3,6 +3,7 @@ import { useCanvasStore } from '@/stores/canvas/use-canvas-store';
 import type { CanvasProject } from '@/stores/canvas/use-canvas-store';
 import type { CanvasBackgroundMode } from '@/lib/canvas-theme';
 import { localForageStorage } from '@/lib/localforage-storage';
+import { XAIS_ATT_PREFIX, xaisAttName } from '@/services/image-storage';
 import {
   encodeChannelModel,
   normalizeChannelModels,
@@ -15,6 +16,8 @@ export const XAIS_EMBED_VERSION = 1;
 export const isXaisEmbed = () => new URLSearchParams(window.location.search).get('embed') === '1';
 export const xaisFileId = () =>
   new URLSearchParams(window.location.search).get('fileId') || window.location.pathname.split('/').filter(Boolean).at(-1) || '';
+
+export { XAIS_ATT_PREFIX, xaisAttName };
 
 type RemotePage = {
   id: string;
@@ -61,6 +64,7 @@ type RemoteModel = {
     fieldTip?: string;
     options: Array<{ label?: string; value: string }>;
   }>;
+  promptEnhance?: string;
 };
 
 type RemoteFile = {
@@ -93,10 +97,11 @@ const XAIS_CHANNEL_ID = 'xais';
 // 构建统一 Worker 任务脚本（每个模型注入各自支持的 customSelectField 定义）
 // 只把模型支持的 customSelectField 参数发给 workerTaskStart，避免无效参数报错
 // 单候选值字段不展示下拉框，但这里仍会带上其唯一候选值发送
-function buildWorkerScript(customSelectFields: Array<{ fieldName: string; options: Array<{ value: string }> }>): string {
+export function buildWorkerScript(customSelectFields: Array<{ fieldName: string; options: Array<{ value: string }> }>): string {
   const fieldDefs = JSON.stringify(customSelectFields.map(f => ({ fieldName: f.fieldName, options: f.options.map(o => o.value) })));
   return [
     '// Xais Worker: workerTaskStart + workerTaskWait',
+    'const XAIS_ATT_PREFIX = ' + JSON.stringify(XAIS_ATT_PREFIX) + ';',
     '// 1. 收集参考图:images 参数 + 文本模型 messages 里的 image_url(画布把参考图放在 vision content 中)',
     'const dataUrls = [...(images || [])];',
     'const isText = Array.isArray(messages) && messages.length > 0;',
@@ -109,9 +114,10 @@ function buildWorkerScript(customSelectFields: Array<{ fieldName: string; option
     '    }',
     '  }',
     '}',
-    '// 2. 上传参考图（data URL → 附件名 → ref）',
+    '// 2. 上传参考图（data URL → 附件名 → ref）；xais-att: 前缀的条目是服务器已有附件，直接复用不再上传',
     'const ref = [];',
     'for (const dataUrl of dataUrls) {',
+    '  if (String(dataUrl).startsWith(XAIS_ATT_PREFIX)) { ref.push(String(dataUrl).slice(XAIS_ATT_PREFIX.length)); continue; }',
     '  const match = String(dataUrl).match(/^data:([^;]+);base64,(.+)$/);',
     '  if (!match) continue;',
     '  const ext = match[1].split("/")[1] || "bin";',
@@ -243,6 +249,7 @@ export function syncXaisModelsToConfig(models: RemoteModel[] | undefined) {
         name: item.name,
         label: item.label,
         customSelectFields: item.customSelectFields,
+        promptEnhance: item.promptEnhance,
         capability,
         vision: item.type === 'ti2t', // 支持图片输入的文生文(反推提示词等场景只列这些)
         script: buildWorkerScript(item.customSelectFields || []),
@@ -285,6 +292,16 @@ const json = async <T>(url: string, init?: RequestInit) => {
 export async function getXaisFile(fileId = xaisFileId()) {
   return json<RemoteFile>('/xais/fileGetV2?id=' + encodeURIComponent(fileId));
 }
+
+export async function enhanceXaisPrompt(model: string, prompt: string, ref: string[] = []) {
+  const result = await json<{ prompt?: string }>('/xais/filePromptEnhance', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: model.replace(/^xais::/, ''), prompt, ref }),
+  });
+  return result.prompt || '';
+}
+
 
 export async function updateXaisFile(body: Record<string, unknown>) {
   await json<void>('/xais/fileUpdate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

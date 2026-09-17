@@ -1,6 +1,6 @@
 import { type CSSProperties, useEffect, useState } from "react";
-import { ArrowUp, LoaderCircle, Maximize2, Settings2, Square } from "lucide-react";
-import { Button, Modal, Popover, Select, Tooltip } from "antd";
+import { ArrowUp, LoaderCircle, Maximize2, Settings2, Square, Zap } from "lucide-react";
+import { Button, message, Modal, Popover, Select, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { ModelPicker } from "@/components/model-picker";
@@ -17,6 +17,7 @@ import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
+import { enhanceXaisPrompt } from "@/services/xais-embed";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
 
@@ -44,11 +45,15 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
     const mode = modeOverride ?? defaultMode(node.type);
     const config = buildNodeConfig(globalConfig, node, mode);
     const customFields = modelCustomSelectFields(config, config.model) || [];
+    const selectedModelName = config.model.includes("::") ? config.model.slice(config.model.lastIndexOf("::") + 2) : config.model;
+    const selectedModel = globalConfig.channels.flatMap((channel) => channel.models).find((model) => model.name === selectedModelName && model.capability === mode);
+    const canEnhancePrompt = Boolean(selectedModel?.promptEnhance);
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
     const [prompt, setPrompt] = useState(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
     const [expanded, setExpanded] = useState(false);
+    const [enhancing, setEnhancing] = useState(false);
 
     // Restore prompts only when switching nodes; preserve the current input after generation on the same node.
     useEffect(() => {
@@ -70,6 +75,32 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
 
     const openExpandedEditor = () => {
         setExpanded(true);
+    };
+
+    const enhancePrompt = async () => {
+        const text = prompt.trim();
+        if (!text || !canEnhancePrompt || isRunning) return;
+        setEnhancing(true);
+        try {
+            const refs = [
+                ...(node.metadata?.references || []),
+                ...connectedNodes.flatMap((source) => {
+                    if (source.type !== CanvasNodeType.Image) return [];
+                    const primary = source.metadata?.images?.find((image) => image.id === source.metadata?.primaryImageId) || source.metadata?.images?.[0];
+                    const att = source.metadata?.att || primary?.att;
+                    return att ? [att] : [];
+                }),
+            ];
+            const enhanced = await enhanceXaisPrompt(config.model, text, [...new Set(refs)]);
+            if (enhanced) {
+                updatePrompt(enhanced);
+                message.success("提示词增强完成");
+            }
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "提示词增强失败");
+        } finally {
+            setEnhancing(false);
+        }
     };
 
     return (
@@ -143,6 +174,21 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
                             </Popover>
                         );
                     })()}
+                    {canEnhancePrompt ? (
+                        <Tooltip title="提示词增强">
+                            <Button
+                                type="text"
+                                size="small"
+                                loading={enhancing}
+                                disabled={!prompt.trim() || isRunning}
+                                className="!h-8 !w-8 !min-w-8 !rounded-full"
+                                style={{ color: theme.node.text }}
+                                icon={<Zap className="size-4" />}
+                                onClick={enhancePrompt}
+                                aria-label="提示词增强"
+                            />
+                        </Tooltip>
+                    ) : null}
                 </div>
                 <Button
                     type="primary"
