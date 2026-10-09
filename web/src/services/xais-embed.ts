@@ -144,9 +144,7 @@ export function buildWorkerScript(customSelectFields: Array<{ fieldName: string;
     '  custom_field[def.fieldName] = hit !== undefined ? hit : def.options[0];',
     '}',
     '// 4. 构建请求体',
-    'const fileId = new URLSearchParams(window.location.search).get("fileId") || "";',
-    'const pageId = params?.__xaisPageId || "";',
-    'const reqBody = { model, prompt, ref, custom_field, fileId: Number(fileId) || undefined, pageId, client: "XAIS" };',
+    'const reqBody = { model, prompt, ref, custom_field, client: "XAISC" };',
     '// 文本模型需要 t2tBody（OpenAI chat completions 格式 JSON）；参考图已走 ref，这里剔除 image_url 部分',
     'if (isText) {',
     '  const cleanMessages = messages.map((msg) => Array.isArray(msg.content)',
@@ -324,8 +322,6 @@ export async function getXaisAttachmentUrls(att: string) {
 }
 
 export async function startXaisTask(request: {
-  fileId?: string;
-  pageId: string;
   model: string;
   prompt: string;
   ref?: string[];
@@ -335,7 +331,7 @@ export async function startXaisTask(request: {
   return json<string>('/xais/workerTaskStart', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...request, fileId: request.fileId || xaisFileId(), custom_field: request.custom_field || {}, client: 'XAIS' }),
+    body: JSON.stringify({ ...request, custom_field: request.custom_field || {}, client: 'XAIS' }),
   });
 }
 
