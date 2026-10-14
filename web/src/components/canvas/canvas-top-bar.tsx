@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Bot, Download, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
+import { BookOpen, Bot, Download, Home, Images, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
 import { Button, Dropdown, Modal, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { UserStatusActions } from "@/components/layout/user-status-actions";
+import { isXaisStandalone, logoutXais } from "@/services/xais-embed";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useCanvasSidePanelStore } from "@/stores/use-canvas-side-panel-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -116,6 +117,19 @@ export function CanvasTopBar({
 
                 <div className="pointer-events-auto flex items-center gap-1.5" style={{ paddingRight: 130 }}>
                     <UserStatusActions variant="canvas" onOpenShortcuts={() => setShortcutsOpen(true)} onOpenPlugins={onOpenPlugins} />
+                    {isXaisStandalone() ? (
+                        <Tooltip title={t("topNav.logout")} mouseEnterDelay={0.2}>
+                            <button
+                                type="button"
+                                className="grid size-7 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10"
+                                style={{ color: theme.node.text }}
+                                onClick={() => void logoutXais()}
+                                aria-label={t("topNav.logout")}
+                            >
+                                <LogOut className="size-4" />
+                            </button>
+                        </Tooltip>
+                    ) : null}
                     <span className="h-6 w-px" style={{ background: theme.toolbar.border }} />
                 </div>
             </div>

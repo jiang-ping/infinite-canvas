@@ -343,6 +343,7 @@ export default {
         shortcuts: "Keyboard shortcuts",
         lightTheme: "Switch to light theme",
         darkTheme: "Switch to dark theme",
+        logout: "Log out",
     },
     home: {
         promptError: "Failed to load prompts",

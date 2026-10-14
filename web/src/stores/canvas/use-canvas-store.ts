@@ -4,7 +4,7 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { localForageStorage } from "@/lib/localforage-storage";
-import { isXaisEmbed, loadXaisCanvasProject, xaisCanvasStorageKey, xaisFileId } from "@/services/xais-embed";
+import { isXaisEmbed, loadXaisCanvasProject, syncXaisModels, xaisCanvasStorageKey, xaisFileId } from "@/services/xais-embed";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "@/types/canvas";
 
@@ -69,6 +69,9 @@ const canvasStorage: PersistStorage<CanvasStore> = {
             const parsed = JSON.parse(value) as StorageValue<CanvasStore>;
             queuedPersistState = parsed.state as PersistedCanvasState;
             // 本地草稿优先：有草稿时不请求服务器，也不以服务器数据覆盖用户未保存的修改。
+            // 但模型调用脚本会随版本更新，不能沿用持久化下来的旧脚本（旧脚本可能多传 fileId 等字段），
+            // 因此这里补一次后台同步，只刷新渠道/脚本，不覆盖本地草稿。
+            if (embed) void syncXaisModels().catch(() => {});
             return parsed;
         }
         if (embed) {

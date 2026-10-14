@@ -17,6 +17,15 @@ export const isXaisEmbed = () => new URLSearchParams(window.location.search).get
 export const xaisFileId = () =>
   new URLSearchParams(window.location.search).get('fileId') || window.location.pathname.split('/').filter(Boolean).at(-1) || '';
 
+/** embed 模式但不在 iframe 中（经 ?canvas=1 等方式整页打开）：此时没有宿主的退出入口，画布自己提供 */
+export const isXaisStandalone = () => isXaisEmbed() && window.self === window.top;
+
+/** 退出 xais 登录（清 XAISID cookie）并回到主应用登录页 */
+export async function logoutXais() {
+  await fetch('/xais/logout', { credentials: 'same-origin' });
+  location.replace('/');
+}
+
 export { XAIS_ATT_PREFIX, xaisAttName };
 
 type RemotePage = {
@@ -478,6 +487,11 @@ export async function remoteFileToProject(file: RemoteFile): Promise<CanvasProje
     showImageInfo: Boolean(canvas.showImageInfo),
     viewport: canvas.viewport || { x: 0, y: 0, k: 1 },
   };
+}
+
+/** 仅同步服务端模型与其调用脚本到配置，不触碰画布数据；用于有本地草稿、跳过 loadXaisCanvasProject 时仍能刷新脚本 */
+export async function syncXaisModels() {
+  syncXaisModelsToConfig((await getXaisFile()).models);
 }
 
 export async function loadXaisCanvasProject() {
